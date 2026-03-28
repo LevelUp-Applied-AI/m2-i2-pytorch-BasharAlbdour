@@ -50,3 +50,10 @@ The loss consistently decreased during training, indicating that the model was l
 # Behavioral Observation
 
 The loss decreased gradually and slowly across epochs, rather than dropping sharply early in training. This suggests that learning was stable but not very efficient, likely due to the large scale of the target variable (```price_jod```) compared to the standardized input features.
+
+# overfitting discussion
+The model shows moderate overfitting. The training MAE (3636.81 JOD) is lower than the test MAE (5868.56 JOD), and the training R² (0.8730) is higher than the test R² (0.7427), indicating that the model performs better on the training data than on unseen data.
+
+However, the gap between training and test performance is not excessive, and the test R² remains reasonably high. This suggests that the model generalizes fairly well, even though some performance is lost when applied to new data.
+
+To further improve generalization, possible next steps include using a randomized train/test split, experimenting with different learning rates, increasing the number of epochs, or adjusting the model size to better balance bias and variance.

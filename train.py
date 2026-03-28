@@ -13,7 +13,7 @@ import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
-
+import matplotlib.pyplot as plt
 
 # ─── Model Definition ─────────────────────────────────────────────────────────
 
@@ -45,7 +45,17 @@ class HousingModel(nn.Module):
         x = self.relu(x)
         x = self.layer2(x)
         return x
-        pass
+
+
+def MAE_R2(y_true, x_pred):
+
+    mae = np.mean(np.abs(y_true - x_pred))
+
+    ss_res = np.sum((y_true - x_pred) ** 2)
+    ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+    r2 = 1 - (ss_res / ss_tot)
+
+    return mae, r2
 
 
 # ─── Main Training Script ─────────────────────────────────────────────────────
@@ -73,14 +83,23 @@ def main():
     X_mean = X.mean()
     X_std = X.std()
     X_scaled = (X - X_mean) / X_std
-    # Why: features have very different scales; standardization ensures
-    #      gradient updates are balanced across all input dimensions.
+    y_mean = y.mean()
+    y_std = y.std()
+    y_scaled = (y - y_mean) / y_std
+
+    split_data = int(0.8 * len(X_scaled))
+    X_train, X_test = X_scaled[:split_data], X_scaled[split_data:]
+    y_train, y_test = y_scaled[:split_data], y_scaled[split_data:]
 
     # ── 4. Convert to Tensors ─────────────────────────────────────────────────
-    X_tensor = torch.tensor(X_scaled.values, dtype=torch.float32)
-    y_tensor = torch.tensor(y.values, dtype=torch.float32)
-    print(f"X shape: {X_tensor.shape}")
-    print(f"y shape: {y_tensor.shape}")
+    X_trained = torch.tensor(X_train.values, dtype=torch.float32)
+    X_tested = torch.tensor(X_test.values, dtype=torch.float32)
+    y_trained = torch.tensor(y_train.values, dtype=torch.float32)
+    y_tested = torch.tensor(y_test.values, dtype=torch.float32)
+    print(f"X trained shape: {X_trained.shape}")
+    print(f"X tested shape: {X_tested.shape}")
+    print(f"Y trained shape: {y_trained.shape}")
+    print(f"Y tested shape: {y_tested.shape}")
 
     # ── 5. Instantiate Model, Loss, and Optimizer ─────────────────────────────
     model = HousingModel()
@@ -89,28 +108,70 @@ def main():
 
     # ── 6. Training Loop ──────────────────────────────────────────────────────
     num_epochs = 100
+    loss_history = []
     for epoch in range(num_epochs):
-        predictions = model(X_tensor)
-        loss = criterion(predictions, y_tensor)
+        predictions = model(X_trained)
+        loss = criterion(predictions, y_trained)
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        loss_history.append(loss.item())
 
         if epoch % 10 == 0:
             print(f"Epoch {epoch:3d}: Loss = {loss.item():.4f}")
 
     # ── 7. Save Predictions ───────────────────────────────────────────────────
     with torch.no_grad():
-        predictions_tensor = model(X_tensor)
+        train_preds = model(X_trained).numpy()
+        test_preds = model(X_tested).numpy()
 
-    predictions_np = predictions_tensor.numpy().flatten()
-    actuals_np = y_tensor.numpy().flatten()
+    y_train_np = y_trained.numpy()
+    y_test_np = y_tested.numpy()
 
-    results_df = pd.DataFrame({"actual": actuals_np, "predicted": predictions_np})
+    y_std_val = y_std.values[0]
+    y_mean_val = y_mean.values[0]
 
+    test_preds_unscaled = test_preds.flatten() * y_std_val + y_mean_val
+    y_test_unscaled = y_test_np.flatten() * y_std_val + y_mean_val
+    y_trained_uncalled = y_train_np.flatten() * y_std_val + y_mean_val
+    train_preds_unscalled = train_preds.flatten() * y_std_val + y_mean_val
+
+    train_mae, train_r2 = MAE_R2(y_trained_uncalled, train_preds_unscalled)
+    test_mae, test_r2 = MAE_R2(y_test_unscaled, test_preds_unscaled)
+
+    print(f"Train MAE: {train_mae:.2f}, R2: {train_r2:.4f}")
+    print(f"Test  MAE: {test_mae:.2f}, R2: {test_r2:.4f}")
+
+    # 9. Save Predictions (TEST SET)
+    results_df = pd.DataFrame(
+        {"actual": y_test_np.flatten(), "predicted": test_preds.flatten()}
+    )
     results_df.to_csv("predictions.csv", index=False)
     print("Saved predictions.csv")
+
+    plt.figure()
+    plt.scatter(y_test_unscaled, test_preds_unscaled)
+
+    min_val = min(y_test_unscaled.min(), test_preds_unscaled.min())
+    max_val = max(y_test_unscaled.max(), test_preds_unscaled.max())
+    plt.plot([min_val, max_val], [min_val, max_val])
+
+    plt.xlabel("Actual")
+    plt.ylabel("Predicted")
+    plt.title("Actual vs Predicted")
+
+    plt.savefig("plots/predictions_plot.png")
+    plt.close()
+
+    plt.figure()
+    plt.plot(loss_history)
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Loss Curve")
+
+    plt.savefig("plots/loss_curve.png")
+    plt.close()
 
 
 if __name__ == "__main__":
